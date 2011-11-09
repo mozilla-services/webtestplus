@@ -39,6 +39,41 @@ from collections import defaultdict
 import json
 import time
 
+from webtest import TestApp
+
+__all__ = ['ClientTesterMiddleware', 'TestAppPlus']
+
+
+class TestAppPlus(TestApp):
+    def __init__(self, app, extra_environ=None, relative_to=None,
+                 use_unicode=True, record_path='/__testing__',
+                 filter_path='/__filter__'):
+        super(TestAppPlus, self).__init__(app, extra_environ, relative_to,
+                                          use_unicode)
+        self._record_path = record_path
+        self._filter_path = filter_path
+
+    def del_filters(self):
+        return self.delete(self._filter_path).status_int == 200
+
+    def filter(self, filters):
+        filters = json.dumps(filters)
+        res = self.post(self._filter_path, params=filters)
+        return res.status_int == 200
+
+    def del_records(self):
+        return self.delete(self._record_path).status_int == 200
+
+    def record(self, status=200, body='', headers=None, repeat=1, delay=0.):
+        if headers is None:
+            headers = {}
+
+        resp = {'status': status, 'body': body, 'headers': headers,
+                'repeat': repeat, 'delay': delay}
+
+        res = self.post(self._record_path, params=json.dumps(resp))
+        return res.status_int == 200
+
 
 def _int2status(status):
     if status == 200:
@@ -92,7 +127,6 @@ class ClientTesterMiddleware(object):
         elif path.startswith(self.filter_path):
             return self._filter(environ, start_response)
 
-
         def sr(_filters):
             def _sr(status, headers):
                 res = start_response(status, headers)
@@ -103,7 +137,6 @@ class ClientTesterMiddleware(object):
                     time.sleep(_filters['*'])
                 return res
             return _sr
-
 
         # classical call, do we have something to replay ?
         if len(replays) > 0:
