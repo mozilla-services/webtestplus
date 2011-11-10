@@ -63,8 +63,8 @@ class TestSupport(unittest.TestCase):
         app.get('/bleh', status=200)
 
         # let's ask for a 503 and then a 400
-        app.record(503)
-        app.record(400)
+        app.mock(503)
+        app.mock(400)
 
         app.get('/buh', status=503)
         app.get('/buh', status=400)
@@ -73,31 +73,31 @@ class TestSupport(unittest.TestCase):
         app.get('/buh', status=200)
 
         # let's ask for two 503s
-        app.record(503, repeat=2)
+        app.mock(503, repeat=2)
 
         app.get('/buh', status=503)
         app.get('/buh', status=503)
         app.get('/buh', status=200)
 
         # some headers and body now
-        app.record(503, 'oy', headers={'foo': '1'})
+        app.mock(503, 'oy', headers={'foo': '1'})
 
         res = app.get('/buh', status=503)
         self.assertEqual(res.body, 'oy')
         self.assertEqual(res.headers['foo'], '1')
 
         # repeat stuff indefinitely
-        app.record(503, repeat=-1)
+        app.mock(503, repeat=-1)
 
         for i in range(20):
             app.get('/buh', status=503)
 
         # let's wipe out the pile
-        app.del_records()
+        app.del_mocks()
         app.get('/buh', status=200)
 
         # a bit of timing now
-        app.record(503, delay=.5)
+        app.mock(503, delay=.5)
         now = time.time()
         app.get('/buh', status=503)
         then = time.time()
@@ -123,7 +123,7 @@ class TestSupport(unittest.TestCase):
         then = time.time()
         self.assertTrue(then - now < .5)
 
-        app.record(503)
+        app.mock(503)
         now = time.time()
         app.get('/buh', status=503)
         then = time.time()
@@ -132,7 +132,7 @@ class TestSupport(unittest.TestCase):
         # let's remove the filters
         app.del_filters()
 
-        app.record(503)
+        app.mock(503)
         now = time.time()
         app.get('/buh', status=503)
         then = time.time()

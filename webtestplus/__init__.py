@@ -61,10 +61,10 @@ class TestAppPlus(TestApp):
         res = self.post(self._filter_path, params=filters)
         return res.status_int == 200
 
-    def del_records(self):
+    def del_mocks(self):
         return self.delete(self._record_path).status_int == 200
 
-    def record(self, status=200, body='', headers=None, repeat=1, delay=0.):
+    def mock(self, status=200, body='', headers=None, repeat=1, delay=0.):
         if headers is None:
             headers = {}
 
