@@ -46,11 +46,11 @@ __all__ = ['ClientTesterMiddleware', 'TestAppPlus']
 
 class TestAppPlus(TestApp):
     def __init__(self, app, extra_environ=None, relative_to=None,
-                 use_unicode=True, record_path='/__testing__',
+                 use_unicode=True, mock_path='/__testing__',
                  filter_path='/__filter__'):
         super(TestAppPlus, self).__init__(app, extra_environ, relative_to,
                                           use_unicode)
-        self._record_path = record_path
+        self._mock_path = mock_path
         self._filter_path = filter_path
 
     def del_filters(self):
@@ -62,7 +62,7 @@ class TestAppPlus(TestApp):
         return res.status_int == 200
 
     def del_mocks(self):
-        return self.delete(self._record_path).status_int == 200
+        return self.delete(self._mock_path).status_int == 200
 
     def mock(self, status=200, body='', headers=None, repeat=1, delay=0.):
         if headers is None:
@@ -71,7 +71,7 @@ class TestAppPlus(TestApp):
         resp = {'status': status, 'body': body, 'headers': headers,
                 'repeat': repeat, 'delay': delay}
 
-        res = self.post(self._record_path, params=json.dumps(resp))
+        res = self.post(self._mock_path, params=json.dumps(resp))
         return res.status_int == 200
 
 
@@ -89,10 +89,10 @@ def _int2status(status):
 class ClientTesterMiddleware(object):
     """Middleware that let a client drive failures for testing purposes.
     """
-    def __init__(self, app, record_path='/__testing__',
+    def __init__(self, app, mock_path='/__testing__',
                  filter_path='/__filter__'):
         self.app = app
-        self.record_path = record_path
+        self.mock_path = mock_path
         self.filter_path = filter_path
         self.replays = defaultdict(list)
         self.filters = defaultdict(dict)
@@ -122,7 +122,7 @@ class ClientTesterMiddleware(object):
         environ['_filters'] = filters = self.filters[ip]
 
         # routing
-        if path.startswith(self.record_path):
+        if path.startswith(self.mock_path):
             return self._record(environ, start_response)
         elif path.startswith(self.filter_path):
             return self._filter(environ, start_response)

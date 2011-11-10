@@ -9,7 +9,7 @@ with open(os.path.join(here, 'README.txt')) as f:
 with open(os.path.join(here, 'CHANGES.txt')) as f:
     CHANGES = f.read()
 
-requires = ['WebTest']
+requires = ['WebTest', 'WebTestRecorder']
 
 
 setup(name='WebTestPlus',
