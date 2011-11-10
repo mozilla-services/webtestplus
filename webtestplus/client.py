@@ -33,6 +33,44 @@
 # the terms of any one of the MPL, the GPL or the LGPL.
 #
 # ***** END LICENSE BLOCK *****
+""" Test helpers
+"""
+import json
+from webtest import TestApp
 
-from webtestplus.override import ClientTesterMiddleware
-from webtestplus.client import TestAppPlus
+
+__all__ = ['TestAppPlus']
+
+
+class TestAppPlus(TestApp):
+    def __init__(self, app, extra_environ=None, relative_to=None,
+                 use_unicode=True, mock_path='/__testing__',
+                 filter_path='/__filter__'):
+        super(TestAppPlus, self).__init__(app, extra_environ, relative_to,
+                                          use_unicode)
+        self._mock_path = mock_path
+        self._filter_path = filter_path
+
+    def del_filters(self):
+        return self.delete(self._filter_path).status_int == 200
+
+    def filter(self, filters):
+        filters = json.dumps(filters)
+        res = self.post(self._filter_path, params=filters)
+        return res.status_int == 200
+
+    def del_mocks(self):
+        return self.delete(self._mock_path).status_int == 200
+
+    def mock(self, status=200, body='', headers=None, repeat=1, delay=0.):
+        if headers is None:
+            headers = {}
+
+        resp = {'status': status, 'body': body, 'headers': headers,
+                'repeat': repeat, 'delay': delay}
+
+        res = self.post(self._mock_path, params=json.dumps(resp))
+        return res.status_int == 200
+
+
+
