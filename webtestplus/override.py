@@ -89,15 +89,12 @@ class ClientTesterMiddleware(object):
         resp = req.response
         resp.status = status
         resp.body = body
+        resp.content_type = 'application/json'
 
-        import pdb; pdb.set_trace()
         if headers is not None:
-            headers = [(key, value.encode('utf8'))
-                        for key, value in headers.items()]
-            resp.headers = headers
+            resp.headers.update(dict(headers))
 
         return resp
-
 
     def _apply_filters(self, resp, filters):
         status = resp.status
@@ -145,7 +142,7 @@ class ClientTesterMiddleware(object):
             resp = request.response
             resp.status = status
             resp.body = body
-            resp.headers = headers
+            resp.headers.update(dict(headers))
 
             # apply filters
             resp = self._apply_filters(resp, filters)
@@ -175,21 +172,17 @@ class ClientTesterMiddleware(object):
                               allow=','.join(allowed))
 
     def _rec_state(self, request):
-        environ = request.environ
-
-        ip = environ['_ip']
-        # what's the method ?
-        method = environ['REQUEST_METHOD']
-        allowed = ('POST', 'GET')
-
-        self._checkmeth(method, allowed)
+        ip = request.environ['_ip']
+        method = request.method
+        self._checkmeth(method, ('POST', 'GET'))
 
         if method == 'POST':
             # define the toggle
             try:
-                st = json.loads(environ['wsgi.input'].read())
+                st = json.loads(request.body)
             except ValueError:
-                return self._resp(start_response, '400 Bad Request')
+                raise exc.HTTPBadRequest()
+
             self.is_recording[ip] = st
             return self._resp(request)
 
