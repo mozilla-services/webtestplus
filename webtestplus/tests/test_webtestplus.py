@@ -137,3 +137,11 @@ class TestSupport(unittest.TestCase):
         app.get('/buh', status=503)
         then = time.time()
         self.assertTrue(then - now < .5)
+
+    def test_rec_flag(self):
+        app = TestAppPlus(ClientTesterMiddleware(SomeApp()))
+        self.assertFalse(app.is_recording())
+        app.start_recording()
+        self.assertTrue(app.is_recording())
+        app.stop_recording()
+        self.assertFalse(app.is_recording())

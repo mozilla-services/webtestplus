@@ -58,12 +58,15 @@ class ClientTesterMiddleware(object):
     """Middleware that let a client drive failures for testing purposes.
     """
     def __init__(self, app, mock_path='/__testing__',
-                 filter_path='/__filter__'):
+                 filter_path='/__filter__',
+                 rec_path='/__record__'):
         self.app = app
         self.mock_path = mock_path
         self.filter_path = filter_path
+        self.rec_path = rec_path
         self.replays = defaultdict(list)
         self.filters = defaultdict(dict)
+        self.is_recording = defaultdict(lambda: False)
 
     def _get_client_ip(self, environ):
         if 'HTTP_X_FORWARDED_FOR' in environ:
@@ -88,12 +91,15 @@ class ClientTesterMiddleware(object):
         environ['_ip'] = ip = self._get_client_ip(environ)
         environ['_replays'] = replays = self.replays[ip]
         environ['_filters'] = filters = self.filters[ip]
+        environ['_is_recording'] = rec = self.is_recording[ip]
 
         # routing
         if path.startswith(self.mock_path):
-            return self._record(environ, start_response)
+            return self._mock(environ, start_response)
         elif path.startswith(self.filter_path):
             return self._filter(environ, start_response)
+        elif path.startswith(self.rec_path):
+            return self._record(environ, start_response)
 
         def sr(_filters):
             def _sr(status, headers):
@@ -126,7 +132,10 @@ class ClientTesterMiddleware(object):
             # no, regular app
             return self.app(environ, sr(filters))
 
-    def _badmethod(self, method, allowed, start_response):
+    def _badmethod(self, method, start_response, allowed=None):
+        if allowed is None:
+            allowed = ('POST', 'DELETE')
+
         if method not in allowed:
             return self._resp(start_response,
                               '405 Method not ALlowed',
@@ -134,9 +143,26 @@ class ClientTesterMiddleware(object):
         return None
 
     def _record(self, environ, start_response):
+        ip = environ['_ip']
         # what's the method ?
         method = environ['REQUEST_METHOD']
-        bad = self._badmethod(method, ('POST', 'DELETE'), start_response)
+        allowed = ('PUT', 'DELETE', 'GET')
+        bad = self._badmethod(method, start_response, allowed)
+        if bad is not None:
+            return bad
+
+        if method in ('PUT', 'DELETE'):
+            # activate the recording
+            self.is_recording[ip] = method == 'PUT'
+            return self._resp(start_response)
+
+        status = json.dumps(self.is_recording[ip])
+        return self._resp(start_response, body=status)
+
+    def _mock(self, environ, start_response):
+        # what's the method ?
+        method = environ['REQUEST_METHOD']
+        bad = self._badmethod(method, start_response)
         if bad is not None:
             return bad
 
@@ -165,7 +191,7 @@ class ClientTesterMiddleware(object):
     def _filter(self, environ, start_response):
         # what's the method ?
         method = environ['REQUEST_METHOD']
-        bad = self._badmethod(method, ('POST', 'DELETE'), start_response)
+        bad = self._badmethod(method, start_response)
         if bad is not None:
             return bad
 

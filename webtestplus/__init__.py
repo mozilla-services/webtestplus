@@ -35,4 +35,14 @@
 # ***** END LICENSE BLOCK *****
 
 from webtestplus.override import ClientTesterMiddleware
+from webtestplus.recorder import Recorder
+
 from webtestplus.client import TestAppPlus
+
+
+def entry_point(app, global_conf, **options):
+    from paste.deploy.converters import asbool
+    recfile = options['recfile']
+    secret = options.get('secret')
+
+    return cls(app, recfile, secret)

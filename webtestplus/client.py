@@ -45,11 +45,22 @@ __all__ = ['TestAppPlus']
 class TestAppPlus(TestApp):
     def __init__(self, app, extra_environ=None, relative_to=None,
                  use_unicode=True, mock_path='/__testing__',
-                 filter_path='/__filter__'):
+                 filter_path='/__filter__',
+                 rec_path='/__record__'):
         super(TestAppPlus, self).__init__(app, extra_environ, relative_to,
                                           use_unicode)
         self._mock_path = mock_path
         self._filter_path = filter_path
+        self._rec_path = rec_path
+
+    def is_recording(self):
+        return json.loads(self.get(self._rec_path).body)
+
+    def start_recording(self):
+        return self.put(self._rec_path).status_int == 200
+
+    def stop_recording(self):
+        return self.delete(self._rec_path).status_int == 200
 
     def del_filters(self):
         return self.delete(self._filter_path).status_int == 200
