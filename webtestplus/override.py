@@ -43,6 +43,12 @@ import time
 __all__ = ['ClientTesterMiddleware']
 
 
+DISABLED = 'disabled'
+RECORD = 'recording'
+REPLAY = 'playing'
+
+
+
 def _int2status(status):
     if status == 200:
         return '200 OK'
@@ -66,7 +72,7 @@ class ClientTesterMiddleware(object):
         self.rec_path = rec_path
         self.replays = defaultdict(list)
         self.filters = defaultdict(dict)
-        self.is_recording = defaultdict(lambda: False)
+        self.is_recording = defaultdict(lambda: DISABLED)
 
     def _get_client_ip(self, environ):
         if 'HTTP_X_FORWARDED_FOR' in environ:
@@ -130,6 +136,7 @@ class ClientTesterMiddleware(object):
             return res
         else:
             # no, regular app
+            # do we record. replay or just call the app ?
             return self.app(environ, sr(filters))
 
     def _badmethod(self, method, start_response, allowed=None):
@@ -146,14 +153,18 @@ class ClientTesterMiddleware(object):
         ip = environ['_ip']
         # what's the method ?
         method = environ['REQUEST_METHOD']
-        allowed = ('PUT', 'DELETE', 'GET')
+        allowed = ('POST', 'GET')
         bad = self._badmethod(method, start_response, allowed)
         if bad is not None:
             return bad
 
-        if method in ('PUT', 'DELETE'):
-            # activate the recording
-            self.is_recording[ip] = method == 'PUT'
+        if method == 'POST':
+            # define the toggle
+            try:
+                st = json.loads(environ['wsgi.input'].read())
+            except ValueError:
+                return self._resp(start_response, '400 Bad Request')
+            self.is_recording[ip] = st
             return self._resp(start_response)
 
         status = json.dumps(self.is_recording[ip])

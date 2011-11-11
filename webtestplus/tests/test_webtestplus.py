@@ -40,6 +40,7 @@ import time
 
 from webob.dec import wsgify
 from webtestplus import ClientTesterMiddleware, TestAppPlus
+from webtestplus.override import DISABLED, RECORD, REPLAY
 
 
 class SomeApp(object):
@@ -140,8 +141,13 @@ class TestSupport(unittest.TestCase):
 
     def test_rec_flag(self):
         app = TestAppPlus(ClientTesterMiddleware(SomeApp()))
-        self.assertFalse(app.is_recording())
+        self.assertEquals(app.rec_status(), DISABLED)
+
         app.start_recording()
-        self.assertTrue(app.is_recording())
-        app.stop_recording()
-        self.assertFalse(app.is_recording())
+        self.assertEquals(app.rec_status(), RECORD)
+
+        app.start_replaying()
+        self.assertEquals(app.rec_status(), REPLAY)
+
+        app.disable_recording()
+        self.assertEquals(app.rec_status(), DISABLED)

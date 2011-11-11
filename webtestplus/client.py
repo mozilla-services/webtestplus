@@ -37,7 +37,7 @@
 """
 import json
 from webtest import TestApp
-
+from webtestplus.override import DISABLED, RECORD, REPLAY
 
 __all__ = ['TestAppPlus']
 
@@ -53,14 +53,21 @@ class TestAppPlus(TestApp):
         self._filter_path = filter_path
         self._rec_path = rec_path
 
-    def is_recording(self):
+    def rec_status(self):
         return json.loads(self.get(self._rec_path).body)
 
-    def start_recording(self):
-        return self.put(self._rec_path).status_int == 200
+    def _send_status(self, status):
+        res = self.post(self._rec_path, params=json.dumps(status))
+        return res.status_int == 200
 
-    def stop_recording(self):
-        return self.delete(self._rec_path).status_int == 200
+    def start_recording(self):
+        return self._send_status(RECORD)
+
+    def start_replaying(self):
+        return self._send_status(REPLAY)
+
+    def disable_recording(self):
+        return self._send_status(DISABLED)
 
     def del_filters(self):
         return self.delete(self._filter_path).status_int == 200
