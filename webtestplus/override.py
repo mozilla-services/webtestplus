@@ -39,6 +39,8 @@ from collections import defaultdict
 import json
 import time
 
+from webob.dec import wsgify
+from webob import exc
 
 __all__ = ['ClientTesterMiddleware']
 
@@ -83,17 +85,36 @@ class ClientTesterMiddleware(object):
 
         return None
 
-    def _resp(self, sr, status='200 OK', body='', headers=None):
-        if headers is None:
-            headers = {}
-        if 'Content-Type' not in headers:
-            headers['Content-Type'] = 'text/plain'
-        sr(status, [(key, value.encode('utf8'))
-                    for key, value in headers.items()])
-        return [body]
+    def _resp(self, req, status='200 OK', body='', headers=None):
+        resp = req.response
+        resp.status = status
+        resp.body = body
 
-    def __call__(self, environ, start_response):
-        path = environ['PATH_INFO']
+        import pdb; pdb.set_trace()
+        if headers is not None:
+            headers = [(key, value.encode('utf8'))
+                        for key, value in headers.items()]
+            resp.headers = headers
+
+        return resp
+
+
+    def _apply_filters(self, resp, filters):
+        status = resp.status
+        intst = int(status.split()[0])
+        if intst in filters:
+            time.sleep(filters[intst])
+        elif '*' in filters:
+            time.sleep(filters['*'])
+
+        # XXX maybe we will have filters that change the resp
+        return resp
+
+    @wsgify
+    def __call__(self, request):
+        environ = request.environ
+        path = request.path_info
+
         environ['_ip'] = ip = self._get_client_ip(environ)
         environ['_replays'] = replays = self.replays[ip]
         environ['_filters'] = filters = self.filters[ip]
@@ -101,22 +122,11 @@ class ClientTesterMiddleware(object):
 
         # routing
         if path.startswith(self.mock_path):
-            return self._mock(environ, start_response)
+            return self._mock(request)
         elif path.startswith(self.filter_path):
-            return self._filter(environ, start_response)
+            return self._filter(request)
         elif path.startswith(self.rec_path):
-            return self._record(environ, start_response)
-
-        def sr(_filters):
-            def _sr(status, headers):
-                res = start_response(status, headers)
-                intst = int(status.split()[0])
-                if intst in _filters:
-                    time.sleep(_filters[intst])
-                elif '*' in _filters:
-                    time.sleep(_filters['*'])
-                return res
-            return _sr
+            return self._rec_state(request)
 
         # classical call, do we have something to replay ?
         if len(replays) > 0:
@@ -131,32 +141,48 @@ class ClientTesterMiddleware(object):
             if replay.get('repeat') == -1:
                 replays.insert(0, replay)
 
-            res = self._resp(sr(filters), status, body, headers)
+            # build the response
+            resp = request.response
+            resp.status = status
+            resp.body = body
+            resp.headers = headers
+
+            # apply filters
+            resp = self._apply_filters(resp, filters)
+
+            # extra delay
             time.sleep(delay)
-            return res
+
+            return resp
         else:
             # no, regular app
-            # do we record. replay or just call the app ?
-            return self.app(environ, sr(filters))
+            # do we record or play or just call the app ?
+            if rec == DISABLED:
+                resp = request.get_response(self.app)
+            elif rec == REPLAY:
+                resp = self._replay(request)
+            elif rec == RECORD:
+                resp = self._record(request)
 
-    def _badmethod(self, method, start_response, allowed=None):
+            return self._apply_filters(resp, filters)
+
+    def _checkmeth(self, method, allowed=None):
         if allowed is None:
             allowed = ('POST', 'DELETE')
 
         if method not in allowed:
-            return self._resp(start_response,
-                              '405 Method not ALlowed',
-                              {'Allow': ','.join(allowed)})
-        return None
+            raise exc.HTTPMethodNotAllowed(
+                              allow=','.join(allowed))
 
-    def _record(self, environ, start_response):
+    def _rec_state(self, request):
+        environ = request.environ
+
         ip = environ['_ip']
         # what's the method ?
         method = environ['REQUEST_METHOD']
         allowed = ('POST', 'GET')
-        bad = self._badmethod(method, start_response, allowed)
-        if bad is not None:
-            return bad
+
+        self._checkmeth(method, allowed)
 
         if method == 'POST':
             # define the toggle
@@ -165,29 +191,27 @@ class ClientTesterMiddleware(object):
             except ValueError:
                 return self._resp(start_response, '400 Bad Request')
             self.is_recording[ip] = st
-            return self._resp(start_response)
+            return self._resp(request)
 
         status = json.dumps(self.is_recording[ip])
-        return self._resp(start_response, body=status)
+        return self._resp(request, body=status)
 
-    def _mock(self, environ, start_response):
+    def _mock(self, request):
         # what's the method ?
-        method = environ['REQUEST_METHOD']
-        bad = self._badmethod(method, start_response)
-        if bad is not None:
-            return bad
+        method = request.method
+        self._checkmeth(method)
+        replays = request.environ['_replays']
 
-        replays = environ['_replays']
         if method == 'DELETE':
             # wipe out
             replays[:] = []
-            return self._resp(start_response)
+            return self._resp(request)
 
         # that's something to add to the pile
         try:
-            resp = json.loads(environ['wsgi.input'].read())
+            resp = json.loads(request.body)
         except ValueError:
-            return self._resp(start_response, '400 Bad Request')
+            raise exc.HTTPBadRequest()
 
         repeat = resp.get('repeat', 1)
         if repeat == -1:
@@ -197,26 +221,25 @@ class ClientTesterMiddleware(object):
             for i in range(repeat):
                 replays.insert(0, resp)
 
-        return self._resp(start_response)
+        return self._resp(request)
 
-    def _filter(self, environ, start_response):
+    def _filter(self, request):
         # what's the method ?
-        method = environ['REQUEST_METHOD']
-        bad = self._badmethod(method, start_response)
-        if bad is not None:
-            return bad
+        method = request.method
+        self._checkmeth(method)
+        filters = request.environ['_filters']
 
-        filters = environ['_filters']
         if method == 'DELETE':
             # wipe out
             filters.clear()
-            return self._resp(start_response)
+            return self._resp(request)
 
         # that's something to set
         try:
-            new = json.loads(environ['wsgi.input'].read())
+            new = json.loads(request.body)
         except ValueError:
-            return self._resp(start_response, '400 Bad Request')
+            raise exc.HTTPBadRequest()
+
         filters.clear()
 
         for status, delay in new.items():
@@ -224,4 +247,10 @@ class ClientTesterMiddleware(object):
                 status = int(status)
             filters[status] = delay
 
-        return self._resp(start_response)
+        return self._resp(request)
+
+    def _replay(environ, start_response):
+        raise NotImplementedError()
+
+    def _record(environ, start_response):
+        raise NotImplementedError()
