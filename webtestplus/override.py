@@ -38,9 +38,15 @@
 from collections import defaultdict
 import json
 import time
+import threading
+import tempfile
+import os
 
 from webob.dec import wsgify
 from webob import exc
+
+from webtestplus.recorder import get_record
+
 
 __all__ = ['ClientTesterMiddleware']
 
@@ -67,7 +73,8 @@ class ClientTesterMiddleware(object):
     """
     def __init__(self, app, mock_path='/__testing__',
                  filter_path='/__filter__',
-                 rec_path='/__record__'):
+                 rec_path='/__record__',
+                 rec_file=None):
         self.app = app
         self.mock_path = mock_path
         self.filter_path = filter_path
@@ -75,6 +82,13 @@ class ClientTesterMiddleware(object):
         self.replays = defaultdict(list)
         self.filters = defaultdict(dict)
         self.is_recording = defaultdict(lambda: DISABLED)
+        self.record_pos = defaultdict(lambda: 0)
+        self.lock = threading.RLock()
+        if rec_file is None:
+            fd, rec_file = tempfile.mkstemp()
+            os.close(fd)
+
+        self.rec_file = rec_file
 
     def _get_client_ip(self, environ):
         if 'HTTP_X_FORWARDED_FOR' in environ:
@@ -154,12 +168,12 @@ class ClientTesterMiddleware(object):
         else:
             # no, regular app
             # do we record or play or just call the app ?
-            if rec == DISABLED:
+            if rec in (DISABLED, RECORD):
                 resp = request.get_response(self.app)
-            elif rec == REPLAY:
+                if rec == RECORD:
+                    self._record(request, resp)
+            else:  # REPLAY:
                 resp = self._replay(request)
-            elif rec == RECORD:
-                resp = self._record(request)
 
             return self._apply_filters(resp, filters)
 
@@ -242,8 +256,33 @@ class ClientTesterMiddleware(object):
 
         return self._resp(request)
 
-    def _replay(environ, start_response):
-        raise NotImplementedError()
+    def _replay(self, request):
+        ip = request.environ['_ip']
+        pos = self.record_pos[ip]
+        resp = get_record(self.rec_file, pos)
+        if resp is None:
+            raise exc.HTTPBadRequest()
 
-    def _record(environ, start_response):
-        raise NotImplementedError()
+        self.record_pos[ip] = pos + 1
+        return resp
+
+    def _record(self, request, resp):
+        data = []
+
+        data.append('--Request:\n')
+        data.append(str(request))
+        if not request.content_length:
+            data.append('\n')
+
+        data.append('\n--Response:\n')
+        data.append(str(resp))
+        if not resp.body:
+            data.append('\n')
+        data.append('\n')
+
+        self.lock.acquire()
+        try:
+            with open(self.rec_file, 'a+') as f:
+                f.write(''.join(data))
+        finally:
+            self.lock.release()

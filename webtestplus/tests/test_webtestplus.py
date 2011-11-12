@@ -48,7 +48,10 @@ class SomeApp(object):
     @wsgify
     def __call__(self, request):
         resp = request.response
-        resp.body = 'ok'
+        if request.method == 'POST':
+            resp.body = request.body
+        else:
+            resp.body = 'ok'
         resp.content_type = 'text/plain'
         resp.status = 200
         return resp
@@ -151,3 +154,24 @@ class TestSupport(unittest.TestCase):
 
         app.disable_recording()
         self.assertEquals(app.rec_status(), DISABLED)
+
+    def test_record_session(self):
+
+        app = TestAppPlus(ClientTesterMiddleware(SomeApp()))
+        self.assertEquals(app.rec_status(), DISABLED)
+
+        app.start_recording()
+        self.assertEquals(app.rec_status(), RECORD)
+
+        # recording three calls
+        app.post('/', params='tic')
+        app.post('/', params='tac')
+        app.post('/', params='toe')
+
+        # good. good. let's replay them
+        app.start_replaying()
+        self.assertEquals(app.rec_status(), REPLAY)
+
+        self.assertEquals(app.get('/').body, 'tic')
+        self.assertEquals(app.get('/').body, 'tac')
+        self.assertEquals(app.get('/').body, 'toe')

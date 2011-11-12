@@ -33,10 +33,7 @@
 # the terms of any one of the MPL, the GPL or the LGPL.
 #
 # ***** END LICENSE BLOCK *****
-
 from webtestplus.override import ClientTesterMiddleware
-from webtestplus.recorder import Recorder
-
 from webtestplus.client import TestAppPlus
 
 
