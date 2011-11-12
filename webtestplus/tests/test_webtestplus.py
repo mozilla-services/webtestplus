@@ -39,6 +39,7 @@ import unittest
 import time
 
 from webob.dec import wsgify
+from webob import exc
 from webtestplus import ClientTesterMiddleware, TestAppPlus
 from webtestplus.override import DISABLED, RECORD, REPLAY
 
@@ -164,14 +165,27 @@ class TestSupport(unittest.TestCase):
         self.assertEquals(app.rec_status(), RECORD)
 
         # recording three calls
-        app.post('/', params='tic')
-        app.post('/', params='tac')
-        app.post('/', params='toe')
+        app.post('/1', params='tic')
+        app.post('/2', params='tac')
+        app.post('/3', params='toe2')
+        app.post('/3', params='toe')
 
         # good. good. let's replay them
         app.start_replaying()
         self.assertEquals(app.rec_status(), REPLAY)
 
-        self.assertEquals(app.get('/').body, 'tic')
-        self.assertEquals(app.get('/').body, 'tac')
-        self.assertEquals(app.get('/').body, 'toe')
+        old = SomeApp.__call__
+
+        def badreq(*args):
+             raise exc.HTTPBadRequest()
+
+        SomeApp.__call__ = badreq
+
+        try:
+            self.assertEquals(app.post('/3', params='toe').body, 'toe')
+            self.assertEquals(app.post('/2', params='tac').body, 'tac')
+            self.assertEquals(app.post('/1', 'tic').body, 'tic')
+            app.post('/buuhhh', status=400)
+        finally:
+            SomeApp.__call__ = old
+

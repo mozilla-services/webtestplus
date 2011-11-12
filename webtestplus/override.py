@@ -82,7 +82,6 @@ class ClientTesterMiddleware(object):
         self.replays = defaultdict(list)
         self.filters = defaultdict(dict)
         self.is_recording = defaultdict(lambda: DISABLED)
-        self.record_pos = defaultdict(lambda: 0)
         self.lock = threading.RLock()
         if rec_file is None:
             fd, rec_file = tempfile.mkstemp()
@@ -258,12 +257,12 @@ class ClientTesterMiddleware(object):
 
     def _replay(self, request):
         ip = request.environ['_ip']
-        pos = self.record_pos[ip]
-        resp = get_record(self.rec_file, pos)
+        resp = get_record(self.rec_file, request)
         if resp is None:
-            raise exc.HTTPBadRequest()
+            # failed to find a matching record
+            # by-passing
+            return request.get_response(self.app)
 
-        self.record_pos[ip] = pos + 1
         return resp
 
     def _record(self, request, resp):

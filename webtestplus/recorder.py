@@ -2,10 +2,23 @@ from warnings import warn
 from webtest import TestRequest, TestResponse
 
 
-def get_record(filename, pos=0, RequestClass=TestRequest,
-               ResponseClass=TestResponse):
+def _matching(asked, stored):
+    if asked.method != stored.method:
+        return False
 
-    current = 0
+    if asked.path_info != stored.path_info:
+        return False
+
+    if asked.method not in ('GET', 'DELETE'):
+        return asked.body == stored.body
+
+    return True
+
+
+def _read_recs(filename, req_class=TestRequest,
+               resp_class=TestResponse):
+    recs = []
+
     with open(filename, 'rb') as f:
         while 1:
             line = f.readline()
@@ -24,13 +37,16 @@ def get_record(filename, pos=0, RequestClass=TestRequest,
                 warn('Invalid line (--Request: expected) at byte %s in %s'
                      % (f.tell(), f))
 
-            req = RequestClass.from_file(f)
+            # reading the request
+            req = req_class.from_file(f)
+
             line = f.readline()
             if not line.strip():
                 line = f.readline()
 
+
             if not line:
-                return req
+                recs.append(req)
 
             line = line.strip()
             if not line:
@@ -42,9 +58,17 @@ def get_record(filename, pos=0, RequestClass=TestRequest,
                 warn('Invalid line (--Response: expected) at byte %s in %s'
                      % (f.tell(), f))
 
-            resp = ResponseClass.from_file(f)
+            resp = resp_class.from_file(f)
             resp.request = req
             req.response = resp
-            if current == pos:
-                return resp
-            current += 1
+            recs.append(req)
+
+    return recs
+
+
+def get_record(filename, request, ):
+
+    recs = _read_recs(filename)
+    for rec in recs:
+        if _matching(request, rec):
+            return rec.response
