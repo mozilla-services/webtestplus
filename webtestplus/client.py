@@ -46,12 +46,14 @@ class TestAppPlus(TestApp):
     def __init__(self, app, extra_environ=None, relative_to=None,
                  use_unicode=True, mock_path='/__testing__',
                  filter_path='/__filter__',
-                 rec_path='/__record__'):
+                 rec_path='/__record__', secret=None):
         super(TestAppPlus, self).__init__(app, extra_environ, relative_to,
                                           use_unicode)
         self._mock_path = mock_path
         self._filter_path = filter_path
         self._rec_path = rec_path
+        if secret is not None:
+            self.extra_environ['HTTP_X_SECRET'] = secret
 
     def rec_status(self):
         return json.loads(self.get(self._rec_path).body)
@@ -89,6 +91,3 @@ class TestAppPlus(TestApp):
 
         res = self.post(self._mock_path, params=json.dumps(resp))
         return res.status_int == 200
-
-
-

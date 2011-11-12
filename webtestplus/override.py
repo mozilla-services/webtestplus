@@ -74,7 +74,10 @@ class ClientTesterMiddleware(object):
     def __init__(self, app, mock_path='/__testing__',
                  filter_path='/__filter__',
                  rec_path='/__record__',
+                 secret='CHANGEME',
+                 requires_secret=True,
                  rec_file=None):
+        self.custom_paths = mock_path, filter_path, rec_path
         self.app = app
         self.mock_path = mock_path
         self.filter_path = filter_path
@@ -88,6 +91,15 @@ class ClientTesterMiddleware(object):
             os.close(fd)
 
         self.rec_file = rec_file
+        self.secret = secret
+        self.requires_secret = requires_secret
+
+    def _auth(self, request):
+        if not self.requires_secret:
+            return
+        provided = request.headers.get('X-Secret')
+        if provided != self.secret:
+            raise exc.HTTPUnauthorized()
 
     def _get_client_ip(self, environ):
         if 'HTTP_X_FORWARDED_FOR' in environ:
@@ -122,6 +134,9 @@ class ClientTesterMiddleware(object):
 
     @wsgify
     def __call__(self, request):
+        if request.path_info in self.custom_paths:
+            self._auth(request)
+
         environ = request.environ
         path = request.path_info
 

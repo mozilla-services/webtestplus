@@ -42,6 +42,7 @@ from webob.dec import wsgify
 from webob import exc
 from webtestplus import ClientTesterMiddleware, TestAppPlus
 from webtestplus.override import DISABLED, RECORD, REPLAY
+from webtest.app import AppError
 
 
 class SomeApp(object):
@@ -60,105 +61,105 @@ class SomeApp(object):
 
 class TestSupport(unittest.TestCase):
 
+    def setUp(self):
+        app = ClientTesterMiddleware(SomeApp(), requires_secret=False)
+        self.app = TestAppPlus(app)
+
     def test_clienttester(self):
-
-        app = TestAppPlus(ClientTesterMiddleware(SomeApp()))
-
         # that calls the app
-        app.get('/bleh', status=200)
+        self.app.get('/bleh', status=200)
 
         # let's ask for a 503 and then a 400
-        app.mock(503)
-        app.mock(400)
+        self.app.mock(503)
+        self.app.mock(400)
 
-        app.get('/buh', status=503)
-        app.get('/buh', status=400)
+        self.app.get('/buh', status=503)
+        self.app.get('/buh', status=400)
 
         # back to normal
-        app.get('/buh', status=200)
+        self.app.get('/buh', status=200)
 
         # let's ask for two 503s
-        app.mock(503, repeat=2)
+        self.app.mock(503, repeat=2)
 
-        app.get('/buh', status=503)
-        app.get('/buh', status=503)
-        app.get('/buh', status=200)
+        self.app.get('/buh', status=503)
+        self.app.get('/buh', status=503)
+        self.app.get('/buh', status=200)
 
         # some headers and body now
-        app.mock(503, 'oy', headers={'foo': '1'})
+        self.app.mock(503, 'oy', headers={'foo': '1'})
 
-        res = app.get('/buh', status=503)
+        res = self.app.get('/buh', status=503)
         self.assertEqual(res.body, 'oy')
         self.assertEqual(res.headers['foo'], '1')
 
         # repeat stuff indefinitely
-        app.mock(503, repeat=-1)
+        self.app.mock(503, repeat=-1)
 
         for i in range(20):
-            app.get('/buh', status=503)
+            self.app.get('/buh', status=503)
 
         # let's wipe out the pile
-        app.del_mocks()
-        app.get('/buh', status=200)
+        self.app.del_mocks()
+        self.app.get('/buh', status=200)
 
         # a bit of timing now
-        app.mock(503, delay=.5)
+        self.app.mock(503, delay=.5)
         now = time.time()
-        app.get('/buh', status=503)
+        self.app.get('/buh', status=503)
         then = time.time()
         self.assertTrue(then - now >= .5)
 
     def test_filtering(self):
         # we want to add .5 delays for *all* requests
-        app = TestAppPlus(ClientTesterMiddleware(SomeApp()))
-        app.filter({'*': .5})
+        self.app.filter({'*': .5})
 
         # let see if it worked
         now = time.time()
-        app.get('/buh', status=200)
+        self.app.get('/buh', status=200)
         then = time.time()
         self.assertTrue(then - now >= .5)
 
         # we want to add .5 delays for *503* requests only
-        app.filter({503: .5})
+        self.app.filter({503: .5})
 
         # let see if it worked
         now = time.time()
-        app.get('/buh', status=200)
+        self.app.get('/buh', status=200)
         then = time.time()
         self.assertTrue(then - now < .5)
 
-        app.mock(503)
+        self.app.mock(503)
         now = time.time()
-        app.get('/buh', status=503)
+        self.app.get('/buh', status=503)
         then = time.time()
         self.assertTrue(then - now >= .5)
 
         # let's remove the filters
-        app.del_filters()
+        self.app.del_filters()
 
-        app.mock(503)
+        self.app.mock(503)
         now = time.time()
-        app.get('/buh', status=503)
+        self.app.get('/buh', status=503)
         then = time.time()
         self.assertTrue(then - now < .5)
 
     def test_rec_flag(self):
-        app = TestAppPlus(ClientTesterMiddleware(SomeApp()))
-        self.assertEquals(app.rec_status(), DISABLED)
+        self.assertEquals(self.app.rec_status(), DISABLED)
 
-        app.start_recording()
-        self.assertEquals(app.rec_status(), RECORD)
+        self.app.start_recording()
+        self.assertEquals(self.app.rec_status(), RECORD)
 
-        app.start_replaying()
-        self.assertEquals(app.rec_status(), REPLAY)
+        self.app.start_replaying()
+        self.assertEquals(self.app.rec_status(), REPLAY)
 
-        app.disable_recording()
-        self.assertEquals(app.rec_status(), DISABLED)
+        self.app.disable_recording()
+        self.assertEquals(self.app.rec_status(), DISABLED)
 
-    def test_record_session(self):
+    def _run_session(self, app=None):
+        if app is None:
+            app = self.app
 
-        app = TestAppPlus(ClientTesterMiddleware(SomeApp()))
         self.assertEquals(app.rec_status(), DISABLED)
 
         app.start_recording()
@@ -189,3 +190,16 @@ class TestSupport(unittest.TestCase):
         finally:
             SomeApp.__call__ = old
 
+    def test_auth(self):
+        # secret activated by default
+        oapp = ClientTesterMiddleware(SomeApp())
+
+        # not using the secret
+        app = TestAppPlus(oapp)
+        app.get('/', status=200)
+        self.assertRaises(AppError, self._run_session, app)
+
+        # now using the secret
+        app = TestAppPlus(oapp, secret='CHANGEME')
+        app.get('/', status=200)
+        self._run_session(app)
