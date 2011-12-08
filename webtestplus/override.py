@@ -157,20 +157,27 @@ class ClientTesterMiddleware(object):
         if len(replays) > 0:
             # yes
             replay = replays.pop()
-            status = _int2status(replay['status'])
+            status = _int2status(replay.get('status', 0))
             body = replay.get('body', u'').encode('utf8')
             headers = replay.get('headers')
             delay = replay.get('delay', 0)
+            passthrough = replay.get('passthrough', False)
 
             # repeat it, always
             if replay.get('repeat') == -1:
                 replays.insert(0, replay)
 
             # build the response
-            resp = request.response
-            resp.status = status
-            resp.body = body
-            resp.headers.update(dict(headers))
+            if not passthrough:
+                resp = request.response
+            else:
+                resp = request.get_response(self.app)
+            if status:
+                resp.status = status
+            if body:
+                resp.body = body
+            if headers:
+                resp.headers.update(dict(headers))
 
             # apply filters
             resp = self._apply_filters(resp, filters)
